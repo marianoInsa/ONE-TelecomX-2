@@ -591,3 +591,229 @@ def plot_charges_analysis(
         plt.close(fig)
         return None
     return fig
+
+
+# ---------------------------------------------------------------------------
+# Funciones de evaluación de modelos
+# ---------------------------------------------------------------------------
+
+
+def plot_confusion_matrix(
+    cm,
+    model_name: str = "",
+    *,
+    ax: plt.Axes | None = None,
+    show: bool = True,
+):
+    """Heatmap anotado de una confusion matrix.
+
+    Parameters
+    ----------
+    cm : array-like, shape (2, 2)
+        Confusion matrix (sklearn format).
+    model_name : str
+        Nombre para el título del gráfico.
+    ax : Axes, optional
+        Axes sobre el que dibujar. Si es ``None`` se crea una figura nueva.
+    show : bool
+        Si ``True``, muestra y cierra la figura. Si ``False``, retorna el
+        ``Figure``.
+    """
+    plt.style.use("cyberpunk")
+
+    own_fig = ax is None
+    if own_fig:
+        fig, ax = plt.subplots(figsize=(6, 5))
+    else:
+        fig = ax.get_figure()
+
+    labels = np.array(cm)
+    # Porcentajes por fila (clase real)
+    row_sums = labels.sum(axis=1, keepdims=True)
+    pct = np.where(row_sums > 0, labels / row_sums * 100, 0)
+
+    annot_text = np.array(
+        [
+            [f"{labels[i, j]:,}\n({pct[i, j]:.1f}%)" for j in range(labels.shape[1])]
+            for i in range(labels.shape[0])
+        ]
+    )
+
+    sns.heatmap(
+        labels,
+        annot=annot_text,
+        fmt="",
+        cmap=CMAP_CYBER,
+        cbar=True,
+        linewidths=1.5,
+        linecolor=BACKGROUND_COLOR,
+        ax=ax,
+        xticklabels=["No Churn (0)", "Churn (1)"],
+        yticklabels=["No Churn (0)", "Churn (1)"],
+        annot_kws={"fontsize": 13, "fontweight": "bold"},
+    )
+
+    ax.set_xlabel("Predicción", fontsize=11)
+    ax.set_ylabel("Real", fontsize=11)
+    title = "Matriz de Confusión"
+    if model_name:
+        title += f" — {model_name}"
+    ax.set_title(title, fontweight="bold", fontsize=13, pad=12)
+
+    plt.tight_layout()
+    if show and own_fig:
+        plt.show()
+        plt.close(fig)
+        return None
+    return fig
+
+
+def plot_metrics_comparison(
+    eval_results: list[dict],
+    *,
+    show: bool = True,
+):
+    """Barras agrupadas comparando Accuracy/Precision/Recall/F1 (test).
+
+    Parameters
+    ----------
+    eval_results : list[dict]
+        Lista de dicts retornados por ``evaluate_model()``.
+    show : bool
+        Si ``True``, muestra la figura.
+    """
+    plt.style.use("cyberpunk")
+
+    metrics_keys = ["accuracy", "precision", "recall", "f1"]
+    metrics_labels = ["Accuracy", "Precision", "Recall", "F1-score"]
+    n_metrics = len(metrics_keys)
+    n_models = len(eval_results)
+
+    x = np.arange(n_metrics)
+    width = 0.7 / n_models
+
+    fig, ax = plt.subplots(figsize=(10, 5.5))
+
+    for idx, result in enumerate(eval_results):
+        values = [result["test"][k] for k in metrics_keys]
+        offset = (idx - (n_models - 1) / 2) * width
+        bars = ax.bar(
+            x + offset,
+            values,
+            width * 0.9,
+            label=result["model"],
+            color=COLOR_PALETTE[idx],
+            edgecolor="white",
+            linewidth=0.5,
+            zorder=3,
+        )
+        for bar, val in zip(bars, values):
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height() + 0.008,
+                f"{val:.3f}",
+                ha="center",
+                va="bottom",
+                fontsize=10,
+                fontweight="bold",
+                color="white",
+            )
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(metrics_labels, fontsize=11)
+    ax.set_ylim(0, 1.08)
+    ax.set_ylabel("Score", fontsize=11)
+    ax.set_title("Comparación de Métricas — Test Set", fontweight="bold", fontsize=14, pad=12)
+    ax.legend(fontsize=10, loc="upper right")
+    ax.grid(axis="y", alpha=0.3, linestyle="--")
+
+    mplcyberpunk.add_glow_effects(ax)
+
+    plt.tight_layout()
+    if show:
+        plt.show()
+        plt.close(fig)
+        return None
+    return fig
+
+
+def plot_overfit_analysis(
+    eval_results: list[dict],
+    *,
+    show: bool = True,
+):
+    """Gráfico de gap Train vs Test para diagnóstico de overfitting.
+
+    Muestra las métricas de Train y Test side-by-side para cada modelo,
+    facilitando la detección visual de overfitting (gap grande) o
+    underfitting (ambos valores bajos).
+
+    Parameters
+    ----------
+    eval_results : list[dict]
+        Lista de dicts retornados por ``evaluate_model()`` **con datos
+        de train incluidos**.
+    show : bool
+        Si ``True``, muestra la figura.
+    """
+    plt.style.use("cyberpunk")
+
+    # Filtrar modelos que tengan métricas de train
+    results_with_train = [r for r in eval_results if r.get("train") is not None]
+    if not results_with_train:
+        print("⚠️ No hay métricas de train disponibles para el análisis de overfitting.")
+        return None
+
+    metrics_keys = ["accuracy", "precision", "recall", "f1"]
+    metrics_labels = ["Accuracy", "Precision", "Recall", "F1"]
+    n_models = len(results_with_train)
+
+    fig, axes = plt.subplots(1, n_models, figsize=(6 * n_models, 5.5), sharey=True)
+    if n_models == 1:
+        axes = [axes]
+
+    for ax, result in zip(axes, results_with_train):
+        train_vals = [result["train"][k] for k in metrics_keys]
+        test_vals = [result["test"][k] for k in metrics_keys]
+        gaps = [t - s for t, s in zip(train_vals, test_vals)]
+
+        x = np.arange(len(metrics_keys))
+        w = 0.32
+
+        bars_train = ax.bar(
+            x - w / 2, train_vals, w, label="Train", color=COLOR_PALETTE[2],
+            edgecolor="white", linewidth=0.5, zorder=3,
+        )
+        bars_test = ax.bar(
+            x + w / 2, test_vals, w, label="Test", color=COLOR_PALETTE[3],
+            edgecolor="white", linewidth=0.5, zorder=3,
+        )
+
+        # Anotar gaps
+        for i, (tv, sv, gap) in enumerate(zip(train_vals, test_vals, gaps)):
+            higher = max(tv, sv)
+            sign = "+" if gap > 0 else ""
+            color = "#ff4444" if abs(gap) > 0.05 else "#44ff44"
+            ax.text(
+                x[i], higher + 0.025,
+                f"Δ {sign}{gap:.3f}",
+                ha="center", va="bottom", fontsize=9, fontweight="bold", color=color,
+            )
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(metrics_labels, fontsize=10)
+        ax.set_ylim(0, 1.12)
+        ax.set_title(result["model"], fontweight="bold", fontsize=13, pad=10)
+        ax.legend(fontsize=9, loc="upper right")
+        ax.grid(axis="y", alpha=0.3, linestyle="--")
+
+    fig.suptitle(
+        "Análisis de Overfitting — Train vs Test",
+        fontweight="bold", fontsize=14, y=1.02,
+    )
+    plt.tight_layout()
+    if show:
+        plt.show()
+        plt.close(fig)
+        return None
+    return fig

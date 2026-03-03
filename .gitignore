@@ -1,5 +1,26 @@
+# Archivos de agentes
+.agents/
+.github/instructions/
+.github/prompts/
+skills-lock.json
+
+# Notas personales
 notes/
 
+# Jupyter
 .ipynb_checkpoints/
 
+# Python / entorno virtual
 .venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Datos y modelos
+data/
+models/
+
+# Artefactos de modelos serializados
+*.pkl
+*.joblib

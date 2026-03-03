@@ -6,7 +6,11 @@ eliminación de columnas, encoding de variables categóricas, división
 train/test, balanceo con SMOTE y estandarización.
 """
 
+from __future__ import annotations
+
+import json
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -14,7 +18,7 @@ from imblearn.over_sampling import SMOTE
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from src.config import RANDOM_STATE, TEST_SIZE
+from src.config import DATA_PROCESSED_DIR, RANDOM_STATE, TEST_SIZE
 
 
 # Resultado del pipeline de split + balanceo
@@ -306,3 +310,62 @@ def scale_features(
     print(f"\n✅ Estandarización completada.")
 
     return X_train_scaled, X_test_scaled, scaler
+
+
+def load_selected_features(
+    path: Path | str | None = None,
+) -> list[str]:
+    """Carga la lista de features seleccionadas desde ``selected_features.json``.
+
+    Lee el artefacto generado por el notebook 02 (correlación y selección)
+    y devuelve únicamente la lista de nombres de columnas.
+
+    Parameters
+    ----------
+    path : Path | str | None
+        Ruta al archivo JSON. Si es ``None``, usa la ruta por defecto
+        ``DATA_PROCESSED_DIR / 'selected_features.json'``.
+
+    Returns
+    -------
+    list[str]
+        Nombres de las features seleccionadas.
+
+    Raises
+    ------
+    FileNotFoundError
+        Si el archivo no existe.
+    KeyError
+        Si el JSON no contiene la clave ``'selected_features'``.
+    """
+    path = Path(path) if path is not None else DATA_PROCESSED_DIR / "selected_features.json"
+
+    if not path.exists():
+        raise FileNotFoundError(
+            f"No se encontró el archivo de features seleccionadas: {path}\n"
+            "Asegúrate de ejecutar primero el notebook 02_correlacion_seleccion."
+        )
+
+    with open(path, "r", encoding="utf-8") as f:
+        artifact = json.load(f)
+
+    if isinstance(artifact, dict) and "selected_features" in artifact:
+        features = artifact["selected_features"]
+        threshold = artifact.get("threshold", "N/A")
+        method = artifact.get("method", "N/A")
+    elif isinstance(artifact, list):
+        features = artifact
+        threshold = "N/A"
+        method = "N/A"
+    else:
+        raise KeyError(
+            "El archivo JSON no contiene la clave 'selected_features' "
+            "ni es una lista directa de features."
+        )
+
+    print(f"📂 Features cargadas desde: {path.name}")
+    print(f"   Método de selección : {method}")
+    print(f"   Umbral aplicado     : |r| >= {threshold}")
+    print(f"   Features retenidas  : {len(features)} columnas")
+
+    return features

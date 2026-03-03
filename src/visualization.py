@@ -817,3 +817,198 @@ def plot_overfit_analysis(
         plt.close(fig)
         return None
     return fig
+
+
+# ===================================================================
+# Importancia de variables
+# ===================================================================
+
+
+def plot_feature_importance(
+    importances,
+    feature_names: list[str],
+    model_name: str = "",
+    *,
+    top_n: int = 15,
+    show: bool = True,
+):
+    """Barras horizontales con las features más relevantes.
+
+    Funciona con coeficientes de LR (pueden ser negativos) y con
+    importancias de RF (siempre ≥ 0). Las features se ordenan por
+    magnitud absoluta.
+
+    Parameters
+    ----------
+    importances : array-like
+        Vector de importancias o coeficientes (longitud = nº features).
+    feature_names : list[str]
+        Nombres de las features correspondientes.
+    model_name : str
+        Nombre del modelo para el título.
+    top_n : int
+        Cuántas features mostrar.
+    show : bool
+        Si ``True``, muestra la figura.
+    """
+    plt.style.use("cyberpunk")
+
+    imp = np.asarray(importances)
+    names = np.asarray(feature_names)
+
+    # Ordenar por magnitud absoluta descendente y tomar top_n
+    order = np.argsort(np.abs(imp))[::-1][:top_n]
+    # Invertir para que la barra más importante quede arriba
+    order = order[::-1]
+
+    top_imp = imp[order]
+    top_names = names[order]
+
+    has_negative = np.any(top_imp < 0)
+
+    fig, ax = plt.subplots(figsize=(9, max(4, top_n * 0.38)))
+
+    if has_negative:
+        # Coeficientes: color diferente para positivo / negativo
+        colors = [COLOR_PALETTE[4] if v >= 0 else COLOR_PALETTE[0] for v in top_imp]
+    else:
+        colors = [COLOR_PALETTE[0]] * len(top_imp)
+
+    bars = ax.barh(range(len(top_imp)), top_imp, color=colors, edgecolor="white", linewidth=0.5, zorder=3)
+
+    # Anotar valores
+    for bar, val in zip(bars, top_imp):
+        offset = 0.002 * np.sign(val) if has_negative else 0.002
+        ha = "left" if val >= 0 else "right"
+        ax.text(
+            bar.get_width() + offset, bar.get_y() + bar.get_height() / 2,
+            f"{val:.4f}", va="center", ha=ha, fontsize=9, fontweight="bold", color="white",
+        )
+
+    ax.set_yticks(range(len(top_names)))
+    ax.set_yticklabels(top_names, fontsize=10)
+    ax.set_xlabel("Coeficiente" if has_negative else "Importancia", fontsize=11)
+
+    title = f"Top {len(top_imp)} Features"
+    if model_name:
+        title += f" — {model_name}"
+    ax.set_title(title, fontweight="bold", fontsize=13, pad=12)
+
+    if has_negative:
+        ax.axvline(0, color="white", linewidth=0.8, linestyle="--", alpha=0.5)
+        legend_handles = [
+            Patch(facecolor=COLOR_PALETTE[4], label="↑ Aumenta prob. churn"),
+            Patch(facecolor=COLOR_PALETTE[0], label="↓ Reduce prob. churn"),
+        ]
+        ax.legend(handles=legend_handles, fontsize=9, loc="lower right")
+
+    ax.grid(axis="x", alpha=0.3, linestyle="--")
+
+    plt.tight_layout()
+    if show:
+        plt.show()
+        plt.close(fig)
+        return None
+    return fig
+
+
+def plot_importance_comparison(
+    lr_importances,
+    lr_features: list[str],
+    rf_importances,
+    rf_features: list[str],
+    *,
+    top_n: int = 15,
+    show: bool = True,
+):
+    """Dot-chart comparando los rankings de importancia de dos modelos.
+
+    Muestra las top-N features de cada modelo en un gráfico unificado,
+    resaltando las que son relevantes para **ambos** modelos.
+
+    Parameters
+    ----------
+    lr_importances : array-like
+        Coeficientes (magnitud absoluta) de LR.
+    lr_features : list[str]
+        Nombres de las features de LR.
+    rf_importances : array-like
+        Importancias de RF.
+    rf_features : list[str]
+        Nombres de las features de RF.
+    top_n : int
+        Cuántas features tomar de cada modelo.
+    show : bool
+        Si ``True``, muestra la figura.
+    """
+    plt.style.use("cyberpunk")
+
+    # Construir rankings
+    lr_imp = np.abs(np.asarray(lr_importances))
+    rf_imp = np.asarray(rf_importances)
+
+    lr_order = np.argsort(lr_imp)[::-1][:top_n]
+    rf_order = np.argsort(rf_imp)[::-1][:top_n]
+
+    lr_top_set = set(np.asarray(lr_features)[lr_order])
+    rf_top_set = set(np.asarray(rf_features)[rf_order])
+
+    common = sorted(lr_top_set & rf_top_set)
+    only_lr = sorted(lr_top_set - rf_top_set)
+    only_rf = sorted(rf_top_set - lr_top_set)
+
+    # Unificar en un solo set ordenado
+    all_features = common + only_lr + only_rf
+
+    # Normalizar importancias a [0, 1] para comparabilidad
+    lr_dict = dict(zip(np.asarray(lr_features), lr_imp / lr_imp.max() if lr_imp.max() > 0 else lr_imp))
+    rf_dict = dict(zip(np.asarray(rf_features), rf_imp / rf_imp.max() if rf_imp.max() > 0 else rf_imp))
+
+    fig, ax = plt.subplots(figsize=(10, max(5, len(all_features) * 0.4)))
+
+    y_pos = np.arange(len(all_features))
+
+    for i, feat in enumerate(reversed(all_features)):
+        lr_val = lr_dict.get(feat, 0)
+        rf_val = rf_dict.get(feat, 0)
+
+        # Determinar color según pertenencia
+        if feat in common:
+            marker_color_lr = COLOR_PALETTE[5]  # amarillo
+            marker_color_rf = COLOR_PALETTE[5]
+        else:
+            marker_color_lr = COLOR_PALETTE[0]  # cyan
+            marker_color_rf = COLOR_PALETTE[4]  # magenta
+
+        ax.scatter(lr_val, i, color=COLOR_PALETTE[0], s=80, zorder=4, marker="o")
+        ax.scatter(rf_val, i, color=COLOR_PALETTE[4], s=80, zorder=4, marker="s")
+
+        # Línea conectora
+        ax.plot([lr_val, rf_val], [i, i], color="white", alpha=0.3, linewidth=1, zorder=2)
+
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels(list(reversed(all_features)), fontsize=9)
+    ax.set_xlabel("Importancia Normalizada (0-1)", fontsize=11)
+    ax.set_title("Comparación de Importancia — LR vs RF", fontweight="bold", fontsize=13, pad=12)
+
+    # Leyenda
+    legend_handles = [
+        Line2D([0], [0], marker="o", color="w", markerfacecolor=COLOR_PALETTE[0], markersize=9, label="Reg. Logística"),
+        Line2D([0], [0], marker="s", color="w", markerfacecolor=COLOR_PALETTE[4], markersize=9, label="Random Forest"),
+        Patch(facecolor=COLOR_PALETTE[5], label=f"En ambos top-{top_n} ({len(common)})", alpha=0.3),
+    ]
+    ax.legend(handles=legend_handles, fontsize=9, loc="lower right")
+
+    # Resaltar features comunes con fondo
+    for i, feat in enumerate(reversed(all_features)):
+        if feat in common:
+            ax.axhspan(i - 0.4, i + 0.4, color=COLOR_PALETTE[5], alpha=0.08, zorder=1)
+
+    ax.grid(axis="x", alpha=0.3, linestyle="--")
+
+    plt.tight_layout()
+    if show:
+        plt.show()
+        plt.close(fig)
+        return None
+    return fig

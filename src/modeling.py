@@ -8,6 +8,7 @@ para mantener los notebooks limpios y reproducibles.
 
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 
@@ -22,8 +23,68 @@ from sklearn.metrics import (
     recall_score,
 )
 
-from src.config import MODELS_DIR
+from src.config import DATA_PROCESSED_DIR, MODELS_DIR
 
+
+# ---------------------------------------------------------------------------
+# Carga de artefactos
+# ---------------------------------------------------------------------------
+
+def load_model(
+    model_name: str,
+    *,
+    directory: Path | str | None = None,
+) -> object:
+    """Carga un modelo serializado desde disco.
+
+    Parameters
+    ----------
+    model_name : str
+        Nombre base del archivo (sin extensión).
+    directory : Path | str | None
+        Directorio fuente. Si es ``None``, usa ``MODELS_DIR``.
+
+    Returns
+    -------
+    object
+        El modelo deserializado (fitted).
+    """
+    directory = Path(directory) if directory is not None else MODELS_DIR
+    path = directory / f"{model_name}.pkl"
+    model = joblib.load(path)
+    print(f"📂 Modelo cargado: {path.name}")
+    return model
+
+
+def load_evaluation_results(
+    path: Path | str | None = None,
+) -> list[dict]:
+    """Carga los resultados de evaluación desde un JSON.
+
+    Parameters
+    ----------
+    path : Path | str | None
+        Ruta al archivo JSON. Si es ``None``, usa
+        ``DATA_PROCESSED_DIR / 'evaluation_results.json'``.
+
+    Returns
+    -------
+    list[dict]
+        Lista de dicts con estructura
+        ``{"model": str, "test": {...}, "train": {...}, ...}``.
+    """
+    path = Path(path) if path is not None else DATA_PROCESSED_DIR / "evaluation_results.json"
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    results = data["models"]
+    feature_config = data.get("feature_config", {})
+    print(f"📂 Evaluaciones cargadas: {[r['model'] for r in results]}")
+    return results, feature_config
+
+
+# ---------------------------------------------------------------------------
+# Entrenamiento
+# ---------------------------------------------------------------------------
 
 def train_model(
     model,

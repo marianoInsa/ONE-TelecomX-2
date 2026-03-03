@@ -1,0 +1,7 @@
+# Runtime dependencies for Hugging Face Spaces (app.py only).
+# NOTE: Gradio is pre-installed by HF Spaces; listed here as safety net.
+gradio>=5.0
+joblib>=1.4
+numpy>=2.0
+pandas>=2.2
+scikit-learn>=1.5

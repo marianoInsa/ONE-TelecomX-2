@@ -7,6 +7,8 @@
 ![scikit-learn](https://img.shields.io/badge/scikit--learn-ML-yellowgreen)
 ![Pandas](https://img.shields.io/badge/Pandas-Data%20Analysis-green)
 ![Matplotlib](https://img.shields.io/badge/Matplotlib-Cyberpunk-blueviolet)
+![Gradio](https://img.shields.io/badge/Gradio-App-ff7c00)
+![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)
 ![Status](https://img.shields.io/badge/Status-Complete-success)
 
 </div>
@@ -30,6 +32,7 @@ El proyecto abarca desde la preparación de los datos para el modelado (codifica
 - ✅ **Interpretación de importancia de variables**: Coeficientes logísticos + importancia Gini, con comparación cruzada entre modelos
 - ✅ **Código modular**: Lógica encapsulada en `src/` con 6 módulos especializados y estilo visual cyberpunk consistente
 - ✅ **Reproducibilidad total**: Semilla fija (`RANDOM_STATE = 42`), artefactos serializados y notebooks encadenados
+- ✅ **Despliegue interactivo**: Aplicación Gradio desplegada en Hugging Face Spaces con ambos modelos disponibles para predicción en tiempo real
 
 ---
 
@@ -106,6 +109,8 @@ Telecom X enfrenta una **tasa de cancelación del 26.54%**, lo que se traduce en
 | `seaborn` | ≥ 0.13.2 | Visualizaciones estadísticas avanzadas |
 | `statsmodels` | ≥ 0.14.4 | Análisis estadístico (VIF) |
 | `ipykernel` | ≥ 7.2.0 | Kernel de Jupyter para entorno virtual |
+| `gradio` | ≥ 5.0 | Interfaz web interactiva para los modelos |
+| `joblib` | ≥ 1.4 | Serialización/deserialización de modelos |
 
 ---
 
@@ -146,6 +151,8 @@ ONE-TelecomX-2/
 │   ├── modeling.py                       # Train, save, load, evaluate
 │   └── visualization.py                  # 1,000+ líneas de gráficos cyberpunk
 │
+├── app.py                                # Aplicación Gradio (deploy en HF Spaces)
+├── requirements.txt                      # Dependencias de runtime para HF Spaces
 ├── CHALLENGE.md                          # Enunciado del desafío
 ├── pyproject.toml                        # Configuración del proyecto y dependencias
 ```
@@ -404,6 +411,64 @@ Basándose en los factores de churn identificados y validados por ambos modelos,
 - Generar alertas automáticas cuando un cliente supere un umbral de probabilidad de churn.
 - Priorizar la intervención del equipo de retención según el score de riesgo.
 - Monitorear la efectividad de las intervenciones y retroalimentar el modelo.
+
+---
+
+## Despliegue en Hugging Face Spaces
+
+Los modelos entrenados están disponibles como una **aplicación web interactiva** desplegada en [Hugging Face Spaces](https://huggingface.co/spaces) con [Gradio](https://gradio.app/). Cualquier persona puede probar las predicciones directamente desde el navegador, sin instalación ni código.
+
+### Acceder a la Aplicación
+
+> **🔗 [Abrir la aplicación en Hugging Face Spaces](https://huggingface.co/spaces/lextroided/telecom-x-ui)**
+
+### ¿Qué permite hacer?
+
+La interfaz presenta **dos pestañas**, una por cada modelo entrenado:
+
+| Pestaña | Modelo | Features | Fortaleza |
+|---|---|---|---|
+| 🔵 **Regresión Logística** | Lineal | 20 seleccionadas ($\|r\| \geq 0.15$) | Alto recall (79.4%), interpretable |
+| 🌲 **Random Forest** | Ensemble (100 árboles) | 30 completas | Captura no linealidades |
+
+El usuario ingresa los datos de un cliente (antigüedad, tipo de contrato, servicio de internet, método de pago, cargos, etc.) y obtiene:
+- La **predicción** de churn (cancela / no cancela)
+- La **probabilidad** de cancelación y permanencia
+
+### Arquitectura del Despliegue
+
+```
+┌─────────────────────────────────────────────────────┐
+│              Hugging Face Spaces (Linux)            │
+│                                                     │
+│  requirements.txt → pip install (solo runtime deps) │
+│                                                     │
+│  app.py                                             │
+│   ├── joblib.load() → logistic_regression.pkl       │
+│   ├── joblib.load() → random_forest.pkl             │
+│   ├── joblib.load() → scaler_modelado.pkl           │
+│   │                                                 │
+│   ├── Input UI (gr.Radio, gr.Slider, gr.Number...)  │
+│   │       │                                         │
+│   │       ▼                                         │
+│   ├── One-Hot Encoding → StandardScaler.transform() │
+│   │       │                                         │
+│   │       ▼                                         │
+│   └── model.predict() + predict_proba() → Resultado │
+│                                                     │
+│  demo.launch() → http://0.0.0.0:7860                │
+└─────────────────────────────────────────────────────┘
+```
+
+### Archivos Clave
+
+| Archivo | Propósito |
+|---|---|
+| `app.py` | Aplicación Gradio: carga modelos, define UI con tabs, funciones de predicción |
+| `requirements.txt` | Dependencias mínimas de runtime (`gradio`, `joblib`, `numpy`, `pandas`, `scikit-learn`). Excluye dependencias de desarrollo (Jupyter, matplotlib, etc.) para evitar errores de compilación en Linux |
+| `models/*.pkl` | Modelos serializados y scaler, cargados por `app.py` al inicio |
+
+> **Nota técnica**: El `requirements.txt` para HF Spaces es intencionalmente mínimo. El archivo completo de desarrollo (`pyproject.toml`) incluye dependencias como `jupyter`, `ipykernel` y sus transitivas (`pywinpty`), que solo compilan en Windows y fallan en los contenedores Linux de HF Spaces.
 
 ---
 

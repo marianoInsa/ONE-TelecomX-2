@@ -420,7 +420,7 @@ Los modelos entrenados están disponibles como una **aplicación web interactiva
 
 ### Acceder a la Aplicación
 
-> **🔗 [Abrir la aplicación en Hugging Face Spaces](https://huggingface.co/spaces/lextroided/telecom-x-ui)**
+> **🔗 [Abrir la aplicación en Hugging Face Spaces](https://huggingface.co/spaces/marianoinsa/telecom-x-ui)**
 
 ### ¿Qué permite hacer?
 

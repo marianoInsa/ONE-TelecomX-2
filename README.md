@@ -312,6 +312,64 @@ Para el objetivo de **retención de clientes**, la Regresión Logística es el m
 
 ---
 
+## Visualizaciones Clave del Análisis
+
+Las siguientes visualizaciones resumen los hallazgos más importantes del proyecto. Cada gráfico fue seleccionado por su capacidad de comunicar un insight accionable tanto a audiencias técnicas como no técnicas.
+
+> Las figuras se generan ejecutando `python src/generate_figures.py` desde la raíz del proyecto.
+
+### 1. ¿Qué factores impulsan la cancelación?
+
+<div align="center">
+
+![Correlación de variables con Churn](docs/images/01_correlation_bars.png)
+
+</div>
+
+Este gráfico muestra las **15 variables más correlacionadas con la cancelación**. Las barras hacia la derecha (cyan) indican factores que **aumentan** la probabilidad de churn, mientras que las barras hacia la izquierda (rosa) representan factores **protectores** que retienen clientes. Se destacan: la antigüedad del cliente (`customer_tenure`) como el mayor protector, y el servicio de fibra óptica y el pago con cheque electrónico como los mayores impulsores de cancelación.
+
+### 2. ¿Cómo se relaciona el gasto con la cancelación?
+
+<div align="center">
+
+![Análisis de cargos por clase](docs/images/05_charges_analysis.png)
+
+</div>
+
+A la izquierda, el boxplot revela que los clientes que cancelan tienen un **gasto total acumulado significativamente menor** (mediana $704 vs $1,680) — consistente con su baja antigüedad. A la derecha, el scatter plot de cargo mensual vs gasto total muestra dos poblaciones claramente diferenciadas: los churners (rosa) se concentran en la esquina inferior derecha, pagando cargos mensuales altos pero con poco tiempo acumulado, mientras que los retenidos (cyan) muestran una distribución más amplia con mayor gasto acumulado.
+
+### 3. ¿Qué tan bien predicen los modelos?
+
+<div align="center">
+
+![Comparación de métricas LR vs RF](docs/images/02_metrics_comparison.png)
+
+</div>
+
+Comparación directa de las 4 métricas clave para ambos modelos. Random Forest lidera en Accuracy (0.781) y Precision (0.588), pero la **Regresión Logística domina en Recall (0.794)** — la métrica más valiosa para retención — y en F1-score (0.625). En un contexto donde perder un cliente que iba a cancelar es más costoso que contactar a uno que no lo haría, el Recall es determinante.
+
+### 4. ¿Cuántos churners detecta cada modelo?
+
+<div align="center">
+
+![Matrices de confusión](docs/images/03_confusion_matrices.png)
+
+</div>
+
+Las matrices de confusión muestran el desempeño concreto de cada modelo. La Regresión Logística detecta **297 de 374 churners** (79.4%), dejando escapar solo 77. El Random Forest es más conservador: detecta 218, pero deja escapar 156 (41.7%). La diferencia es crítica: con la Regresión Logística, el equipo de retención podría intervenir sobre casi el 80% de los clientes en riesgo real.
+
+### 5. ¿En qué coinciden ambos modelos?
+
+<div align="center">
+
+![Comparación de importancia LR vs RF](docs/images/04_importance_comparison.png)
+
+</div>
+
+Este dot-chart compara los rankings de importancia de ambos modelos, normalizados a escala 0-1. Las filas con fondo resaltado son variables que aparecen en el **top-15 de ambos modelos**, lo que indica robustez del hallazgo independientemente del algoritmo. Los factores de churn más robustos son: `customer_tenure`, `account_charges_monthly`, `account_charges_total`, fibra óptica y contratos bianuales — confirmando que las estrategias de retención deben enfocarse en la antigüedad temprana, la percepción de valor y los incentivos contractuales.
+
+---
+
 ## Factores Clave de Cancelación
 
 El análisis de importancia de variables, validado por **consenso entre ambos modelos**, identifica los siguientes drivers de churn:

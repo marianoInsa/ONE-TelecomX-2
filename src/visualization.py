@@ -13,6 +13,9 @@ import pandas as pd
 import seaborn as sns
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
+from scipy.stats import gaussian_kde
+from sklearn.metrics import roc_auc_score, roc_curve
+from sklearn.tree import plot_tree
 
 from src.config import CMAP_CYBER, COLOR_PALETTE, BACKGROUND_COLOR
 
@@ -46,9 +49,10 @@ def plot_class_distribution(
     colors: list[str] | None = None,
     labels: list[str] | None = None,
     *,
+    right_plot: str = "ratio",
     show: bool = True,
 ) -> plt.Figure | None:
-    """Gráfico de barras + pie chart de la distribución de la variable objetivo.
+    """Gráfico de barras + (ratio o pie chart) de la distribución de la variable objetivo.
 
     Parameters
     ----------
@@ -60,6 +64,9 @@ def plot_class_distribution(
         Dos colores [clase_0, clase_1]. Por defecto los primeros de la paleta.
     labels : list[str] | None
         Etiquetas para cada clase.
+    right_plot : str
+        Tipo de gráfico derecho: ``"ratio"`` (barras con ratio de desbalance)
+        o ``"pie"`` (pie chart clásico).
     show : bool
         Si True, muestra la figura con ``plt.show()``.
 
@@ -91,21 +98,41 @@ def plot_class_distribution(
             ha="center", va="bottom", fontweight="bold", fontsize=11, color="white",
         )
 
-    # Pie chart
-    wedges, texts, autotexts = axes[1].pie(
-        class_counts.values,
-        labels=labels,
-        colors=colors,
-        autopct="%1.1f%%",
-        startangle=90,
-        wedgeprops={"edgecolor": BACKGROUND_COLOR, "linewidth": 2},
-    )
-    for at in autotexts:
-        at.set_fontweight("bold")
-        at.set_color("white")
-    for t in texts:
-        t.set_color("white")
-    axes[1].set_title("Distribución relativa", fontweight="bold")
+    if right_plot == "pie":
+        # Pie chart (modo legacy)
+        wedges, texts, autotexts = axes[1].pie(
+            class_counts.values,
+            labels=labels,
+            colors=colors,
+            autopct="%1.1f%%",
+            startangle=90,
+            wedgeprops={"edgecolor": BACKGROUND_COLOR, "linewidth": 2},
+        )
+        for at in autotexts:
+            at.set_fontweight("bold")
+            at.set_color("white")
+        for t in texts:
+            t.set_color("white")
+        axes[1].set_title("Distribución relativa", fontweight="bold")
+    else:
+        # Barras con ratio de desbalance
+        bars_r = axes[1].bar(labels, class_counts.values, color=colors, width=0.5, edgecolor="none", zorder=2)
+        axes[1].set_title("Conteo absoluto por clase", fontweight="bold")
+        axes[1].set_ylabel("Número de clientes")
+        axes[1].set_ylim(0, max(class_counts.values) * 1.35)
+        _annotate_bars(axes[1], bars_r, class_counts.values)
+
+        # Ratio de desbalance como texto central prominente
+        ratio = class_counts.values[0] / class_counts.values[1] if class_counts.values[1] > 0 else float("inf")
+        axes[1].text(
+            0.5, 0.92,
+            f"Ratio de desbalance: {ratio:.2f}:1",
+            transform=axes[1].transAxes,
+            ha="center", va="top", fontsize=13, fontweight="bold",
+            color=COLOR_PALETTE[3],
+            bbox=dict(boxstyle="round,pad=0.4", facecolor=BACKGROUND_COLOR, edgecolor=COLOR_PALETTE[3], alpha=0.8),
+        )
+        mplcyberpunk.add_bar_gradient(bars=bars_r, ax=axes[1])
 
     mplcyberpunk.add_bar_gradient(bars=bars, ax=axes[0])
     plt.tight_layout()
@@ -181,6 +208,7 @@ def plot_scaling_comparison(
     col_indices: list[int] | None = None,
     colors: list[str] | None = None,
     *,
+    kde: bool = True,
     show: bool = True,
 ) -> plt.Figure | None:
     """Histogramas 2×N comparando distribuciones antes y después del escalado.
@@ -201,6 +229,9 @@ def plot_scaling_comparison(
         DataFrame, se ignoran y se usan los nombres de columna.
     colors : list[str] | None
         Un color por columna.
+    kde : bool
+        Si True, superpone una curva KDE en los histogramas de la fila
+        inferior (datos escalados).
     show : bool
         Si True, muestra la figura con ``plt.show()``.
 
@@ -249,6 +280,19 @@ def plot_scaling_comparison(
         ax_after = axes[1, i]
         ax_after.hist(scaled_col, bins=35, color=color, alpha=0.35, edgecolor="none")
         ax_after.hist(scaled_col, bins=35, color=color, alpha=1.0, histtype="step", linewidth=1.8)
+
+        # KDE superpuesta (eje secundario para no distorsionar escala)
+        if kde and len(scaled_col) > 2:
+            try:
+                kde_func = gaussian_kde(scaled_col)
+                x_kde = np.linspace(scaled_col.min(), scaled_col.max(), 200)
+                ax_kde = ax_after.twinx()
+                ax_kde.plot(x_kde, kde_func(x_kde), color="white", linewidth=2.0, alpha=0.8)
+                ax_kde.set_yticks([])
+                ax_kde.set_ylabel("")
+                mplcyberpunk.make_lines_glow(ax_kde)
+            except np.linalg.LinAlgError:
+                pass  # Degenerate data — skip KDE
         # Líneas de media y ±1σ
         ax_after.axvline(sc_mean, color=COLOR_PALETTE[3], ls="--", lw=1.8, label=f"μ = {sc_mean:.2f}")
         ax_after.axvline(sc_mean - sc_std, color=COLOR_PALETTE[2], ls=":", lw=1.4, label=f"−1σ = {sc_mean - sc_std:.2f}")
@@ -419,9 +463,10 @@ def plot_boxplot_by_target(
     ylabels: list[str] | None = None,
     suptitle: str | None = None,
     *,
+    kind: str = "box",
     show: bool = True,
 ) -> plt.Figure | None:
-    """Boxplots lado a lado comparando distribuciones por clase del target.
+    """Boxplots (o violin plots) lado a lado comparando distribuciones por clase.
 
     Parameters
     ----------
@@ -437,6 +482,9 @@ def plot_boxplot_by_target(
         Etiquetas para el eje Y de cada subplot.
     suptitle : str | None
         Título general de la figura.
+    kind : str
+        Tipo de gráfico: ``"box"`` (boxplot clásico), ``"violin"``
+        (violin plot con split), o ``"both"`` (violin con boxplot interno).
     show : bool
         Si True, muestra la figura con ``plt.show()``.
 
@@ -459,34 +507,61 @@ def plot_boxplot_by_target(
         data_0 = df.loc[df[target] == 0, col]
         data_1 = df.loc[df[target] == 1, col]
 
-        bp = ax.boxplot(
-            [data_0, data_1],
-            patch_artist=True,
-            medianprops=dict(color="white", linewidth=2.5),
-            whiskerprops=dict(color="white", linewidth=1.5),
-            capprops=dict(color="white", linewidth=1.8),
-            flierprops=dict(marker="o", color=COLOR_PALETTE[2], alpha=0.5, markersize=4),
-        )
-        for patch, color in zip(bp["boxes"], colors):
-            patch.set_facecolor(color)
-            patch.set_alpha(0.75)
-            patch.set_edgecolor("white")
-            patch.set_linewidth(1.5)
+        if kind in ("violin", "both"):
+            # Prepare long-form data for seaborn
+            plot_df = df[[col, target]].copy()
+            plot_df[target] = plot_df[target].map({0: "No canceló (0)", 1: "Canceló (1)"})
 
-        # Anotación de medianas
-        ref_range = data_0.max() - data_0.min()
-        for med, x_pos in zip([data_0.median(), data_1.median()], [1, 2]):
-            ax.text(
-                x_pos, med + ref_range * 0.04,
-                f"Med: {med:.0f}",
-                ha="center", va="bottom", fontsize=10, fontweight="bold", color="white",
+            parts = sns.violinplot(
+                data=plot_df, x=target, y=col, ax=ax,
+                palette={
+                    "No canceló (0)": colors[0],
+                    "Canceló (1)": colors[1],
+                },
+                inner="box" if kind == "both" else "quartile",
+                alpha=0.6, linewidth=1.5, linecolor="white",
             )
+            ax.set_xlabel("")
 
-        ax.set_xticks([1, 2])
-        ax.set_xticklabels(["No canceló (0)", "Canceló (1)"], fontsize=10)
+            # Anotación de medianas
+            ref_range = data_0.max() - data_0.min()
+            for med, x_pos in zip([data_0.median(), data_1.median()], [0, 1]):
+                ax.text(
+                    x_pos, med + ref_range * 0.04,
+                    f"Med: {med:.0f}",
+                    ha="center", va="bottom", fontsize=10, fontweight="bold", color="white",
+                )
+        else:
+            # Classic boxplot
+            bp = ax.boxplot(
+                [data_0, data_1],
+                patch_artist=True,
+                medianprops=dict(color="white", linewidth=2.5),
+                whiskerprops=dict(color="white", linewidth=1.5),
+                capprops=dict(color="white", linewidth=1.8),
+                flierprops=dict(marker="o", color=COLOR_PALETTE[2], alpha=0.5, markersize=4),
+            )
+            for patch, color in zip(bp["boxes"], colors):
+                patch.set_facecolor(color)
+                patch.set_alpha(0.75)
+                patch.set_edgecolor("white")
+                patch.set_linewidth(1.5)
+
+            # Anotación de medianas
+            ref_range = data_0.max() - data_0.min()
+            for med, x_pos in zip([data_0.median(), data_1.median()], [1, 2]):
+                ax.text(
+                    x_pos, med + ref_range * 0.04,
+                    f"Med: {med:.0f}",
+                    ha="center", va="bottom", fontsize=10, fontweight="bold", color="white",
+                )
+
+            ax.set_xticks([1, 2])
+            ax.set_xticklabels(["No canceló (0)", "Canceló (1)"], fontsize=10)
+            mplcyberpunk.make_lines_glow(ax)
+
         ax.set_title(ylabel, fontweight="bold")
         ax.set_ylabel(ylabel)
-        mplcyberpunk.make_lines_glow(ax)
 
     plt.tight_layout()
     if show:
@@ -502,6 +577,7 @@ def plot_charges_analysis(
     target: str = "Churn",
     colors: list[str] | None = None,
     *,
+    density_contours: bool = True,
     show: bool = True,
 ) -> plt.Figure | None:
     """Boxplot de gasto total + scatter mensual vs total, coloreado por Churn.
@@ -514,6 +590,8 @@ def plot_charges_analysis(
         Columna objetivo.
     colors : list[str] | None
         ``[color_clase_0, color_clase_1]``.
+    density_contours : bool
+        Si True, superpone contornos de densidad 2D por clase en el scatter.
     show : bool
         Si True, muestra la figura con ``plt.show()``.
 
@@ -574,6 +652,22 @@ def plot_charges_analysis(
     # Puntos principales
     axes[1].scatter(x_sc[mask_0], y_sc[mask_0], color=c0, alpha=0.35, s=12, edgecolors="none", zorder=3)
     axes[1].scatter(x_sc[mask_1], y_sc[mask_1], color=c1, alpha=0.35, s=12, edgecolors="none", zorder=3)
+
+    # Contornos de densidad 2D por clase
+    if density_contours:
+        for mask, color in [(mask_0, c0), (mask_1, c1)]:
+            x_data = x_sc[mask].values
+            y_data = y_sc[mask].values
+            if len(x_data) > 10:
+                try:
+                    kde_2d = gaussian_kde(np.vstack([x_data, y_data]))
+                    xi = np.linspace(x_data.min(), x_data.max(), 80)
+                    yi = np.linspace(y_data.min(), y_data.max(), 80)
+                    xi_grid, yi_grid = np.meshgrid(xi, yi)
+                    zi = kde_2d(np.vstack([xi_grid.ravel(), yi_grid.ravel()])).reshape(xi_grid.shape)
+                    axes[1].contour(xi_grid, yi_grid, zi, levels=4, colors=color, alpha=0.6, linewidths=1.2, zorder=4)
+                except np.linalg.LinAlgError:
+                    pass  # Degenerate data — skip contours
 
     axes[1].set_xlabel("Cargo Mensual (USD)", fontsize=10)
     axes[1].set_ylabel("Gasto Total Acumulado (USD)", fontsize=10)
@@ -1004,6 +1098,399 @@ def plot_importance_comparison(
         if feat in common:
             ax.axhspan(i - 0.4, i + 0.4, color=COLOR_PALETTE[5], alpha=0.08, zorder=1)
 
+    ax.grid(axis="x", alpha=0.3, linestyle="--")
+
+    plt.tight_layout()
+    if show:
+        plt.show()
+        plt.close(fig)
+        return None
+    return fig
+
+
+# ===================================================================
+# Nuevas visualizaciones — Mejoras del análisis
+# ===================================================================
+
+
+def plot_roc_curves(
+    models_data: list[dict],
+    *,
+    show: bool = True,
+) -> plt.Figure | None:
+    """Curvas ROC superpuestas para comparar modelos.
+
+    Cada entrada en ``models_data`` es un dict con claves ``"name"``,
+    ``"y_true"`` y ``"y_proba"`` (probabilidades de la clase positiva).
+
+    Parameters
+    ----------
+    models_data : list[dict]
+        Lista de modelos a graficar. Cada dict contiene:
+        - ``name`` (str): nombre del modelo.
+        - ``y_true`` (array): etiquetas reales.
+        - ``y_proba`` (array): probabilidades predichas para la clase 1.
+    show : bool
+        Si ``True``, muestra la figura.
+
+    Returns
+    -------
+    plt.Figure | None
+    """
+    plt.style.use("cyberpunk")
+
+    model_colors = [COLOR_PALETTE[0], COLOR_PALETTE[1], COLOR_PALETTE[2],
+                    COLOR_PALETTE[6], COLOR_PALETTE[8]]
+
+    fig, ax = plt.subplots(figsize=(8, 7))
+
+    for idx, entry in enumerate(models_data):
+        name = entry["name"]
+        y_true = np.asarray(entry["y_true"])
+        y_proba = np.asarray(entry["y_proba"])
+
+        fpr, tpr, _ = roc_curve(y_true, y_proba)
+        auc_score = roc_auc_score(y_true, y_proba)
+
+        color = model_colors[idx % len(model_colors)]
+        ax.plot(fpr, tpr, color=color, linewidth=2.5, label=f"{name} (AUC = {auc_score:.4f})")
+
+    # Línea diagonal — clasificador aleatorio
+    ax.plot([0, 1], [0, 1], color=COLOR_PALETTE[7], linestyle="--", linewidth=1.5,
+            alpha=0.7, label="Clasificador aleatorio (AUC = 0.50)")
+
+    ax.set_xlabel("Tasa de Falsos Positivos (FPR)", fontsize=11)
+    ax.set_ylabel("Tasa de Verdaderos Positivos (TPR)", fontsize=11)
+    ax.set_title("Curvas ROC — Comparación de Modelos", fontweight="bold", fontsize=14, pad=12)
+    ax.legend(fontsize=10, loc="lower right")
+    ax.set_xlim(-0.02, 1.02)
+    ax.set_ylim(-0.02, 1.02)
+    ax.grid(alpha=0.3, linestyle="--")
+
+    mplcyberpunk.make_lines_glow(ax)
+
+    plt.tight_layout()
+    if show:
+        plt.show()
+        plt.close(fig)
+        return None
+    return fig
+
+
+def plot_distribution_eda(
+    df: pd.DataFrame,
+    columns: list[str],
+    target: str = "Churn",
+    *,
+    show: bool = True,
+) -> plt.Figure | None:
+    """Histograma + KDE de variables continuas, agrupado por clase del target.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Dataset con las columnas numéricas y el target.
+    columns : list[str]
+        Columnas numéricas a graficar.
+    target : str
+        Columna de la variable objetivo binaria (0/1).
+    show : bool
+        Si ``True``, muestra la figura.
+
+    Returns
+    -------
+    plt.Figure | None
+    """
+    plt.style.use("cyberpunk")
+
+    n = len(columns)
+    fig, axes = plt.subplots(n, 1, figsize=(12, 4 * n))
+    if n == 1:
+        axes = [axes]
+
+    fig.suptitle(
+        "Distribuciones de Variables Continuas por Clase",
+        fontsize=14, fontweight="bold", y=1.01,
+    )
+
+    colors_map = {0: COLOR_PALETTE[0], 1: COLOR_PALETTE[1]}
+    labels_map = {0: "No canceló (0)", 1: "Canceló (1)"}
+
+    for ax, col in zip(axes, columns):
+        for cls in [0, 1]:
+            data = df.loc[df[target] == cls, col].dropna().values
+            color = colors_map[cls]
+            label = labels_map[cls]
+
+            # Freedman-Diaconis bins
+            try:
+                bin_edges = np.histogram_bin_edges(data, bins="fd")
+            except Exception:
+                bin_edges = 30
+
+            ax.hist(data, bins=bin_edges, color=color, alpha=0.35, edgecolor="none", label=label)
+            ax.hist(data, bins=bin_edges, color=color, alpha=1.0, histtype="step", linewidth=1.5)
+
+            # KDE superpuesta
+            if len(data) > 2:
+                try:
+                    kde_func = gaussian_kde(data)
+                    x_kde = np.linspace(data.min(), data.max(), 200)
+                    ax_kde = ax.twinx()
+                    ax_kde.plot(x_kde, kde_func(x_kde), color=color, linewidth=2.0, alpha=0.85)
+                    ax_kde.set_yticks([])
+                    ax_kde.set_ylabel("")
+                except np.linalg.LinAlgError:
+                    pass
+
+            # Líneas de referencia
+            mean_val = data.mean()
+            med_val = np.median(data)
+            ax.axvline(mean_val, color=color, ls="--", lw=1.5, alpha=0.7)
+            ax.axvline(med_val, color=color, ls=":", lw=1.5, alpha=0.7)
+
+        ax.set_title(col, fontweight="bold", fontsize=12)
+        ax.set_ylabel("Frecuencia")
+        ax.set_xlabel(col)
+
+        # Leyenda con indicadores de referencia
+        legend_handles = [
+            Patch(facecolor=colors_map[0], alpha=0.5, label=labels_map[0]),
+            Patch(facecolor=colors_map[1], alpha=0.5, label=labels_map[1]),
+            Line2D([0], [0], color="white", ls="--", lw=1.5, label="Media"),
+            Line2D([0], [0], color="white", ls=":", lw=1.5, label="Mediana"),
+        ]
+        ax.legend(handles=legend_handles, fontsize=9, loc="upper right")
+
+    plt.tight_layout()
+    if show:
+        plt.show()
+        plt.close(fig)
+        return None
+    return fig
+
+
+def plot_categorical_vs_target(
+    df: pd.DataFrame,
+    columns: list[str],
+    target: str = "Churn",
+    *,
+    ncols: int = 3,
+    show: bool = True,
+) -> plt.Figure | None:
+    """Barras agrupadas mostrando la tasa de churn por feature categórica.
+
+    Cada subplot muestra, para cada valor del feature binario (0/1),
+    la tasa de churn como barras con porcentaje anotado.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Dataset con las columnas categóricas y el target.
+    columns : list[str]
+        Columnas categóricas binarias (0/1) a analizar.
+    target : str
+        Columna objetivo.
+    ncols : int
+        Número de columnas en la grilla de subplots.
+    show : bool
+        Si ``True``, muestra la figura.
+
+    Returns
+    -------
+    plt.Figure | None
+    """
+    plt.style.use("cyberpunk")
+
+    n = len(columns)
+    nrows = int(np.ceil(n / ncols))
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=(5.5 * ncols, 4.5 * nrows))
+    axes_flat = np.atleast_1d(axes).flatten()
+
+    fig.suptitle(
+        "Tasa de Churn por Variable Categórica",
+        fontsize=14, fontweight="bold", y=1.01,
+    )
+
+    for i, (ax, col) in enumerate(zip(axes_flat, columns)):
+        # Calcular tasa de churn por valor del feature
+        grouped = df.groupby(col)[target].mean() * 100  # porcentaje
+        counts = df.groupby(col)[target].count()
+
+        x_labels = [f"{col}\n= {v}" for v in grouped.index]
+        bar_colors = [COLOR_PALETTE[0], COLOR_PALETTE[1]] if len(grouped) == 2 else [COLOR_PALETTE[i % 9]]
+
+        bars = ax.bar(
+            x_labels, grouped.values,
+            color=bar_colors[:len(grouped)], width=0.5, edgecolor="none", zorder=2,
+        )
+
+        for bar, pct, cnt in zip(bars, grouped.values, counts.values):
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height() + 1.0,
+                f"{pct:.1f}%\n(n={cnt:,})",
+                ha="center", va="bottom", fontsize=9, fontweight="bold", color="white",
+            )
+
+        # Nombre simplificado del feature
+        short_name = col.split("_", 1)[-1] if "_" in col else col
+        ax.set_title(short_name, fontweight="bold", fontsize=10)
+        ax.set_ylabel("Tasa de Churn (%)")
+        ax.set_ylim(0, max(grouped.values) * 1.4 if len(grouped) > 0 else 100)
+        mplcyberpunk.add_bar_gradient(bars=bars, ax=ax)
+
+    # Ocultar ejes sobrantes
+    for ax in axes_flat[n:]:
+        ax.set_visible(False)
+
+    plt.tight_layout()
+    if show:
+        plt.show()
+        plt.close(fig)
+        return None
+    return fig
+
+
+def plot_decision_tree_sample(
+    rf_model,
+    feature_names: list[str],
+    *,
+    tree_index: int = 0,
+    max_depth: int = 3,
+    show: bool = True,
+) -> plt.Figure | None:
+    """Visualiza un árbol individual del ensemble Random Forest.
+
+    Parameters
+    ----------
+    rf_model : RandomForestClassifier
+        Modelo Random Forest ya entrenado.
+    feature_names : list[str]
+        Nombres de las features usadas para entrenar el RF.
+    tree_index : int
+        Índice del árbol a visualizar (0-based).
+    max_depth : int
+        Profundidad máxima a mostrar (para legibilidad).
+    show : bool
+        Si ``True``, muestra la figura.
+
+    Returns
+    -------
+    plt.Figure | None
+    """
+    plt.style.use("cyberpunk")
+
+    n_estimators = len(rf_model.estimators_)
+    tree = rf_model.estimators_[tree_index]
+
+    fig, ax = plt.subplots(figsize=(22, 10))
+
+    plot_tree(
+        tree,
+        max_depth=max_depth,
+        feature_names=feature_names,
+        class_names=["No Churn", "Churn"],
+        filled=True,
+        rounded=True,
+        fontsize=9,
+        ax=ax,
+    )
+
+    # color de los textos a negro
+    for text_obj in ax.texts:
+        text_obj.set_color("black")
+
+    ax.set_title(
+        f"Árbol de Decisión #{tree_index} (profundidad limitada a {max_depth})",
+        fontweight="bold", fontsize=14, pad=16,
+    )
+
+    # Nota informativa
+    fig.text(
+        0.5, 0.01,
+        f"Este es 1 de los {n_estimators} árboles del ensemble Random Forest. "
+        f"Profundidad real del árbol: {tree.get_depth()}.",
+        ha="center", fontsize=10, color=COLOR_PALETTE[7], style="italic",
+    )
+
+    plt.tight_layout()
+    if show:
+        plt.show()
+        plt.close(fig)
+        return None
+    return fig
+
+
+def plot_permutation_importance(
+    perm_result,
+    feature_names: list[str],
+    model_name: str = "",
+    *,
+    top_n: int = 15,
+    show: bool = True,
+) -> plt.Figure | None:
+    """Barras horizontales de importancia por permutación con barras de error.
+
+    Parameters
+    ----------
+    perm_result : PermutationImportanceResult
+        Resultado de ``sklearn.inspection.permutation_importance()``,
+        con atributos ``.importances_mean`` y ``.importances_std``.
+    feature_names : list[str]
+        Nombres de las features (en el mismo orden que los datos).
+    model_name : str
+        Nombre del modelo para el título.
+    top_n : int
+        Cuántas features mostrar.
+    show : bool
+        Si ``True``, muestra la figura.
+
+    Returns
+    -------
+    plt.Figure | None
+    """
+    plt.style.use("cyberpunk")
+
+    imp_mean = np.asarray(perm_result.importances_mean)
+    imp_std = np.asarray(perm_result.importances_std)
+    names = np.asarray(feature_names)
+
+    # Ordenar por importancia media descendente
+    order = np.argsort(imp_mean)[::-1][:top_n]
+    order = order[::-1]  # Invertir para que la más importante quede arriba
+
+    top_mean = imp_mean[order]
+    top_std = imp_std[order]
+    top_names = names[order]
+
+    fig, ax = plt.subplots(figsize=(9, max(4, top_n * 0.38)))
+
+    bars = ax.barh(
+        range(len(top_mean)), top_mean,
+        xerr=top_std,
+        color=COLOR_PALETTE[0], edgecolor="white", linewidth=0.5,
+        error_kw=dict(ecolor=COLOR_PALETTE[3], lw=1.5, capsize=3, capthick=1.2),
+        zorder=3,
+    )
+
+    for bar, val, std in zip(bars, top_mean, top_std):
+        ax.text(
+            bar.get_width() + std + 0.002,
+            bar.get_y() + bar.get_height() / 2,
+            f"{val:.4f}",
+            va="center", ha="left", fontsize=9, fontweight="bold", color="white",
+        )
+
+    ax.set_yticks(range(len(top_names)))
+    ax.set_yticklabels(top_names, fontsize=10)
+    ax.set_xlabel("Disminución media del score", fontsize=11)
+
+    title = f"Top {len(top_mean)} Features — Importancia por Permutación"
+    if model_name:
+        title += f" — {model_name}"
+    ax.set_title(title, fontweight="bold", fontsize=13, pad=12)
     ax.grid(axis="x", alpha=0.3, linestyle="--")
 
     plt.tight_layout()

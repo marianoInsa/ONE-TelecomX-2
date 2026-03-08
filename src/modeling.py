@@ -21,6 +21,7 @@ from sklearn.metrics import (
     f1_score,
     precision_score,
     recall_score,
+    roc_auc_score,
 )
 
 from src.config import DATA_PROCESSED_DIR, MODELS_DIR
@@ -187,6 +188,8 @@ def evaluate_model(
     *,
     y_train_true: pd.Series | np.ndarray | None = None,
     y_pred_train: np.ndarray | None = None,
+    y_proba_test: np.ndarray | None = None,
+    y_proba_train: np.ndarray | None = None,
 ) -> dict:
     """Evalúa un modelo de clasificación e imprime un reporte formateado.
 
@@ -203,6 +206,11 @@ def evaluate_model(
         overfitting).
     y_pred_train : array-like, optional
         Predicciones del modelo en el conjunto de **train**.
+    y_proba_test : array-like, optional
+        Probabilidades predichas para la clase positiva en **test**.
+        Si se proporciona, calcula ROC AUC.
+    y_proba_train : array-like, optional
+        Probabilidades predichas para la clase positiva en **train**.
 
     Returns
     -------
@@ -214,11 +222,16 @@ def evaluate_model(
 
     # --- Test ---
     test_m = _compute_metrics(y_true, y_pred)
+    if y_proba_test is not None:
+        test_m["auc"] = roc_auc_score(y_true, y_proba_test)
+        test_m["y_proba"] = np.asarray(y_proba_test)
     result["test"] = test_m
 
     # --- Train (opcional) ---
     if y_train_true is not None and y_pred_train is not None:
         train_m = _compute_metrics(y_train_true, y_pred_train)
+        if y_proba_train is not None:
+            train_m["auc"] = roc_auc_score(y_train_true, y_proba_train)
         result["train"] = train_m
     else:
         result["train"] = None
@@ -234,6 +247,8 @@ def evaluate_model(
         print(f"    Precision : {m['precision']:.4f}")
         print(f"    Recall    : {m['recall']:.4f}")
         print(f"    F1-score  : {m['f1']:.4f}")
+        if 'auc' in m:
+            print(f"    ROC AUC   : {m['auc']:.4f}")
 
     _print_block("Test set", test_m)
     if result["train"] is not None:
